@@ -1,0 +1,216 @@
+====================================
+   Manual do Gerenciador SRC-PKG
+====================================
+
+srcpkg é um gerenciador de pacotes baseado em código-fonte para Linux,
+escrito em Python. Ele permite baixar, compilar, empacotar, instalar,
+remover e atualizar programas a partir de receitas JSON.
+
+------------------------------------
+1) Instalação e configuração
+------------------------------------
+
+1.1) Dependências necessárias:
+    - Python 3
+    - wget ou curl
+    - tar, xz, gzip, bzip2, unzip
+    - make, gcc, g++
+    - fakeroot
+    - git (para sync)
+
+1.2) Instalação do srcpkg:
+    - Copie o arquivo srcpkg.py para /usr/local/bin
+    - Dê permissão de execução:
+        sudo chmod +x /usr/local/bin/srcpkg.py
+
+1.3) Diretórios padrão (~/.local/share/srcpkg):
+    sources/   -> arquivos de código-fonte baixados
+    build/     -> diretórios temporários de compilação
+    packages/  -> pacotes gerados (.tar.xz)
+    db/        -> banco de pacotes instalados (.files)
+    logs/      -> registros de compilação e instalação
+
+1.4) Diretório do repositório de receitas:
+    $REPO/{base,x11,extras,desktop}
+    - Onde ficam arquivos JSON descrevendo cada pacote
+
+------------------------------------
+2) Estrutura de uma receita JSON
+------------------------------------
+
+Exemplo mínimo:
+
+{
+  "name": "exemplo",
+  "version": "1.0",
+  "homepage": "https://exemplo.org",
+  "source": {
+    "url": "https://exemplo.org/exemplo-1.0.tar.xz",
+    "sha256": "abc123..."
+  },
+  "dependencies": ["dep1", "dep2"],
+  "patches": [
+    { "url": "https://exemplo.org/patch.diff", "sha256": "def456...", "strip": 1 }
+  ],
+  "build": {
+    "prepare": ["./configure --prefix=/usr"],
+    "compile": ["make -j$(nproc)"],
+    "install": ["make install"]
+  },
+  "hooks": {
+    "post_install": ["ldconfig"],
+    "post_remove": ["echo 'removido!'"]
+  },
+  "strip": true
+}
+
+------------------------------------
+3) Comandos principais do srcpkg
+------------------------------------
+
+srcpkg.py [comando] [receita.json|nome]
+
+- build <receita>    -> apenas baixa, extrai, aplica patch e compila
+- package <receita>  -> build + gera pacote .tar.xz em packages/
+- install <receita>  -> resolve dependências, compila, empacota e instala
+- remove <nome>      -> remove pacote instalado e seus arquivos
+- list               -> lista pacotes instalados
+- info <receita>     -> mostra informações do pacote
+- search <nome>      -> procura receita no repositório e/ou pacote instalado
+- orphans            -> lista pacotes órfãos (sem depender de nada)
+- revdep             -> verifica dependentes quebrados (libs ausentes)
+- sync               -> atualiza repositório de receitas (git pull)
+- upgrade <receita>  -> recompila versão mais nova
+
+------------------------------------
+4) Exemplos de receitas completas
+------------------------------------
+
+4.1) Receita do GCC (gcc.json)
+--------------------------------
+{
+  "name": "gcc",
+  "version": "13.2.0",
+  "homepage": "https://gcc.gnu.org/",
+  "source": {
+    "url": "https://ftp.gnu.org/gnu/gcc/gcc-13.2.0/gcc-13.2.0.tar.xz",
+    "sha256": "e0f8a5d5c49b3a1a9e9a3058f3429d348c6f2a6ed01a836e2b6c7e6c40d4d2d3"
+  },
+  "dependencies": ["gmp","mpfr","mpc","isl","zlib","zstd"],
+  "build": {
+    "prepare": [
+      "mkdir -p build",
+      "cd build && ../configure --prefix=/usr --disable-multilib --enable-languages=c,c++"
+    ],
+    "compile": [
+      "cd build && make -j$(nproc)"
+    ],
+    "install": [
+      "cd build && make install"
+    ]
+  },
+  "hooks": {
+    "post_install": ["ldconfig"]
+  },
+  "strip": true
+}
+
+4.2) Receita da Glibc (glibc.json)
+----------------------------------
+{
+  "name": "glibc",
+  "version": "2.39",
+  "homepage": "https://www.gnu.org/software/libc/",
+  "source": {
+    "url": "https://ftp.gnu.org/gnu/libc/glibc-2.39.tar.xz",
+    "sha256": "f5a09d1cbf9c4ef6f3421c9f23573a3e4af34366dc8b9e6ad338f1a282ae0040"
+  },
+  "dependencies": ["linux-headers"],
+  "build": {
+    "prepare": [
+      "mkdir -p build",
+      "cd build && ../configure --prefix=/usr --disable-werror"
+    ],
+    "compile": [
+      "cd build && make -j$(nproc)"
+    ],
+    "install": [
+      "cd build && make install"
+    ]
+  },
+  "hooks": {
+    "post_install": ["ldconfig"]
+  },
+  "strip": false
+}
+
+4.3) Receita do Firefox (firefox.json)
+--------------------------------------
+{
+  "name": "firefox",
+  "version": "128.0",
+  "homepage": "https://www.mozilla.org/firefox/",
+  "source": {
+    "url": "https://archive.mozilla.org/pub/firefox/releases/128.0/source/firefox-128.0.source.tar.xz",
+    "sha256": "d041fef12e512ab6d3093b94b743ef49a42b88fa64d9f1a7034974aee59b8e82"
+  },
+  "dependencies": ["gtk3","dbus","alsa-lib","nss","nspr","icu","zlib"],
+  "build": {
+    "prepare": [
+      "./mach bootstrap --application-choice=browser",
+      "./mach configure"
+    ],
+    "compile": [
+      "./mach build -j$(nproc)"
+    ],
+    "install": [
+      "./mach install --destdir=$DESTDIR"
+    ]
+  },
+  "hooks": {
+    "post_install": ["ldconfig"]
+  },
+  "strip": false
+}
+
+------------------------------------
+5) Fluxo de uso
+------------------------------------
+
+Exemplo: instalar GCC
+
+1. Sincronizar repositório de receitas
+    srcpkg.py sync
+
+2. Instalar GCC (com dependências)
+    sudo srcpkg.py install gcc.json
+
+3. Verificar pacotes instalados
+    srcpkg.py list
+
+4. Remover GCC
+    sudo srcpkg.py remove gcc
+
+5. Procurar pacotes
+    srcpkg.py search firefox
+
+6. Atualizar pacotes órfãos
+    srcpkg.py orphans
+
+7. Checar dependentes quebrados
+    srcpkg.py revdep
+
+------------------------------------
+6) Conclusão
+------------------------------------
+
+srcpkg é um sistema modular, inspirado em gerenciadores source-based
+como Gentoo Portage e Arch ABS.  
+Receitas são simples JSON e podem ser versionadas em git.
+
+Use sempre em ambiente de testes primeiro, pois compilar grandes pacotes
+(firefox, glibc, gcc) pode consumir bastante tempo e recursos.
+
+====================================
+FIM DO MANUAL
+====================================
